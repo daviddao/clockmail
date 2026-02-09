@@ -52,12 +52,14 @@ When to broadcast:
 - When you finish a task and are about to move on
 - Periodically during long tasks (roughly every major milestone)
 
-Use `cm status` to see who is active, then message each agent:
+Use `cm broadcast` or `cm send all` to reach everyone at once:
 
 ```bash
-# Broadcast your current work to all active agents
-cm send alice "working on auth refactor — editing auth.go and session.go"
-cm send bob "working on auth refactor — editing auth.go and session.go"
+# Broadcast your current work to all active agents (one command)
+cm broadcast "working on auth refactor — editing auth.go and session.go"
+
+# Equivalent:
+cm send all "working on auth refactor — editing auth.go and session.go"
 ```
 
 Keep messages concise but informative — include **what** you're working on and **which files** you're touching. This lets other agents plan around your work and avoid lock contention.
@@ -86,11 +88,17 @@ cm recv
 cm send <agent> "your message"
 ```
 
-### When to use `cm exchange` vs `cm send`
+### send, exchange, and broadcast
 
-- **`cm exchange <to> <msg>`** — Use this when you're having a conversation. It prints received messages prominently, then sends. Makes the bidirectional pattern explicit.
-- **`cm send <to> <msg>`** — Still auto-receives, but the inbox output goes to stderr. Use for fire-and-forget broadcasts where you don't expect a reply.
+`cm send` is the unified messaging command. It always drains your inbox before sending (bidirectional by default). The old `cm exchange` is now an alias for `cm send`.
+
+- **`cm send <to> <msg>`** — Send a message. Prints received messages to stdout first, then sends.
+- **`cm send all <msg>`** — Broadcast to all registered agents (excludes self).
+- **`cm broadcast <msg>`** — Shorthand for `cm send all <msg>`.
+- **`cm send <to> <msg> --quiet`** — Fire-and-forget mode: inbox output goes to stderr instead.
 - **`cm recv`** — Use standalone when you just want to check your inbox without sending anything.
+
+The aliases `exchange` and `ex` still work and map to `send`.
 
 ### Minimum Coordination Cadence
 

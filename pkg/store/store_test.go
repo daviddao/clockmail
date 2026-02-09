@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -432,6 +433,124 @@ func TestGetActivePointstamps(t *testing.T) {
 	}
 	if len(ps) != 2 {
 		t.Fatalf("got %d pointstamps, want 2", len(ps))
+	}
+}
+
+// --- Retry logic tests ---
+
+func TestIsTransientSQLiteError_BusyError(t *testing.T) {
+	err := fmt.Errorf("SQLITE_BUSY: database is locked")
+	if !isTransientSQLiteError(err) {
+		t.Fatal("SQLITE_BUSY should be transient")
+	}
+}
+
+func TestIsTransientSQLiteError_LockedError(t *testing.T) {
+	err := fmt.Errorf("SQLITE_LOCKED: database table is locked")
+	if !isTransientSQLiteError(err) {
+		t.Fatal("SQLITE_LOCKED should be transient")
+	}
+}
+
+func TestIsTransientSQLiteError_IOError(t *testing.T) {
+	err := fmt.Errorf("SQLITE_IOERR (522)")
+	if !isTransientSQLiteError(err) {
+		t.Fatal("SQLITE_IOERR should be transient")
+	}
+}
+
+func TestIsTransientSQLiteError_NilError(t *testing.T) {
+	if isTransientSQLiteError(nil) {
+		t.Fatal("nil error should not be transient")
+	}
+}
+
+func TestIsTransientSQLiteError_NonTransient(t *testing.T) {
+	err := fmt.Errorf("UNIQUE constraint failed")
+	if isTransientSQLiteError(err) {
+		t.Fatal("UNIQUE constraint error should not be transient")
+	}
+}
+
+func TestRetryOnContention_SuccessFirstAttempt(t *testing.T) {
+	calls := 0
+	err := retryOnContention(func() error {
+		calls++
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected 1 call, got %d", calls)
+	}
+}
+
+func TestRetryOnContention_SuccessAfterRetry(t *testing.T) {
+	calls := 0
+	err := retryOnContention(func() error {
+		calls++
+		if calls < 3 {
+			return fmt.Errorf("SQLITE_BUSY: database is locked")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if calls != 3 {
+		t.Fatalf("expected 3 calls, got %d", calls)
+	}
+}
+
+func TestRetryOnContention_NonTransientError(t *testing.T) {
+	calls := 0
+	err := retryOnContention(func() error {
+		calls++
+		return fmt.Errorf("UNIQUE constraint failed")
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if calls != 1 {
+		t.Fatalf("non-transient error should not retry, got %d calls", calls)
+	}
+}
+
+func TestRetryOnContention_ExhaustsRetries(t *testing.T) {
+	calls := 0
+	err := retryOnContention(func() error {
+		calls++
+		return fmt.Errorf("SQLITE_BUSY: database is locked")
+	})
+	if err == nil {
+		t.Fatal("expected error after exhausting retries")
+	}
+	if calls != 4 { // 1 initial + 3 retries
+		t.Fatalf("expected 4 calls (1 + 3 retries), got %d", calls)
+	}
+}
+
+// --- CountEvents tests ---
+
+func TestCountEvents_Empty(t *testing.T) {
+	s := newTestStore(t)
+	if c := s.CountEvents(); c != 0 {
+		t.Fatalf("empty store: CountEvents = %d, want 0", c)
+	}
+}
+
+func TestCountEvents_WithEvents(t *testing.T) {
+	s := newTestStore(t)
+	s.RegisterAgent("alice")
+	for i := int64(1); i <= 5; i++ {
+		s.InsertEvent(&model.Event{
+			AgentID: "alice", LamportTS: i, Kind: model.EventMsg,
+			CreatedAt: time.Now().UTC(),
+		})
+	}
+	if c := s.CountEvents(); c != 5 {
+		t.Fatalf("CountEvents = %d, want 5", c)
 	}
 }
 

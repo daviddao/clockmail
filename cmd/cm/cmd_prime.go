@@ -12,6 +12,7 @@ import (
 func (a *app) cmdPrime(args []string) int {
 	flags := flag.NewFlagSet("prime", flag.ContinueOnError)
 	agent := flags.String("agent", "", "agent ID")
+	jsonOut := flags.Bool("json", false, "JSON output")
 	if err := flags.Parse(args); err != nil {
 		return 1
 	}
@@ -41,23 +42,41 @@ func (a *app) cmdPrime(args []string) int {
 
 	// My locks.
 	var myLocks []model.Lock
+	var otherLocks []model.Lock
 	for _, l := range locks {
 		if l.AgentID == agentID {
 			myLocks = append(myLocks, l)
+		} else {
+			otherLocks = append(otherLocks, l)
 		}
 	}
 
 	// Frontier safety.
-	var safe bool
-	var blockers []model.Pointstamp
+	var fStatus *frontier.FrontierStatus
 	if myAgent != nil {
 		ts := model.Timestamp{Epoch: myAgent.Epoch, Round: myAgent.Round}
-		fStatus := frontier.ComputeFrontierStatus(agentID, ts, active)
-		safe = fStatus.SafeToFinalize
-		blockers = fStatus.BlockedBy
+		s := frontier.ComputeFrontierStatus(agentID, ts, active)
+		fStatus = &s
 	}
 
-	// --- Output ---
+	if *jsonOut {
+		result := map[string]interface{}{
+			"agent_id":         agentID,
+			"agent":            myAgent,
+			"agents":           agents,
+			"locks":            locks,
+			"my_locks":         myLocks,
+			"other_locks":      otherLocks,
+			"frontier":         f,
+			"frontier_status":  fStatus,
+			"pending_messages": pendingMsgs,
+			"pending_count":    len(pendingMsgs),
+		}
+		printJSON(result)
+		return 0
+	}
+
+	// --- Text Output ---
 
 	fmt.Println("# Clockmail Coordination Context")
 	fmt.Println()
@@ -98,18 +117,10 @@ func (a *app) cmdPrime(args []string) int {
 		fmt.Println()
 	}
 
-	var otherLocks int
-	for _, l := range locks {
-		if l.AgentID != agentID {
-			otherLocks++
-		}
-	}
-	if otherLocks > 0 {
+	if len(otherLocks) > 0 {
 		fmt.Println("## Other Agents' Locks")
-		for _, l := range locks {
-			if l.AgentID != agentID {
-				fmt.Printf("  %s held by %s\n", l.Path, l.AgentID)
-			}
+		for _, l := range otherLocks {
+			fmt.Printf("  %s held by %s\n", l.Path, l.AgentID)
 		}
 		fmt.Println()
 	}
@@ -129,13 +140,13 @@ func (a *app) cmdPrime(args []string) int {
 	}
 	fmt.Println()
 
-	if myAgent != nil {
+	if myAgent != nil && fStatus != nil {
 		fmt.Println("## Frontier")
-		if safe {
+		if fStatus.SafeToFinalize {
 			fmt.Printf("  SAFE to finalize epoch=%d round=%d\n", myAgent.Epoch, myAgent.Round)
 		} else {
 			fmt.Printf("  NOT SAFE to finalize epoch=%d round=%d\n", myAgent.Epoch, myAgent.Round)
-			for _, b := range blockers {
+			for _, b := range fStatus.BlockedBy {
 				fmt.Printf("    blocked by %s at epoch=%d round=%d\n",
 					b.AgentID, b.Timestamp.Epoch, b.Timestamp.Round)
 			}
@@ -168,7 +179,9 @@ func (a *app) cmdPrime(args []string) int {
 	fmt.Println("## Quick Reference")
 	fmt.Println()
 	fmt.Println("  cm sync --epoch N     # Main loop: heartbeat + recv + frontier")
-	fmt.Println("  cm send <to> <msg>    # Message another agent")
+	fmt.Println("  cm send <to> <msg>    # Message another agent (drains inbox first)")
+	fmt.Println("  cm send all <msg>     # Broadcast to all agents")
+	fmt.Println("  cm broadcast <msg>    # Same as send all")
 	fmt.Println("  cm lock <path>        # Lock file before editing")
 	fmt.Println("  cm unlock <path>      # Release lock")
 	fmt.Println("  cm status             # Full overview")

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/daviddao/clockmail/pkg/clock"
 	"github.com/daviddao/clockmail/pkg/model"
@@ -146,6 +147,39 @@ func printInbox(msgs []model.Event) int {
 	}
 	fmt.Fprintf(os.Stderr, "============================\n\n")
 	return len(msgs)
+}
+
+// resolveRecipients expands the recipient string. The special value "all"
+// (case-insensitive) expands to all registered agents except the sender.
+// Otherwise it splits on comma as before.
+func (a *app) resolveRecipients(to, senderID string) ([]string, error) {
+	if strings.EqualFold(strings.TrimSpace(to), "all") {
+		agents, err := a.store.ListAgents()
+		if err != nil {
+			return nil, fmt.Errorf("list agents for broadcast: %w", err)
+		}
+		var recipients []string
+		for _, ag := range agents {
+			if ag.ID != senderID {
+				recipients = append(recipients, ag.ID)
+			}
+		}
+		if len(recipients) == 0 {
+			return nil, fmt.Errorf("no other agents registered to broadcast to")
+		}
+		return recipients, nil
+	}
+	var recipients []string
+	for _, r := range strings.Split(to, ",") {
+		r = strings.TrimSpace(r)
+		if r != "" {
+			recipients = append(recipients, r)
+		}
+	}
+	if len(recipients) == 0 {
+		return nil, fmt.Errorf("no recipients specified")
+	}
+	return recipients, nil
 }
 
 // printJSON writes v to stdout as indented JSON.

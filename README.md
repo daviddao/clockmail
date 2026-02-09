@@ -31,6 +31,8 @@ export CLOCKMAIL_AGENT=alice
 
 cm register bob              # register another agent
 cm send bob "working on auth.go, don't touch it"
+cm send all "status update"  # broadcast to all agents
+cm broadcast "status update" # same as above
 cm lock auth.go              # exclusive file lock
 # ... do work ...
 cm unlock auth.go
@@ -74,7 +76,8 @@ Use `cm frontier --epoch N` to check, or `cm sync --epoch N` which checks automa
 | `cm prime` | Print full coordination context: your state, peers, locks, frontier |
 | `cm register <id>` | Register a new agent |
 | `cm heartbeat [--epoch N]` | Advance clock, report working position |
-| `cm send <to> <msg>` | Send message (comma-separated recipients) |
+| `cm send <to> <msg>` | Send message (drains inbox first, bidirectional) |
+| `cm broadcast <msg>` | Send to all agents (shorthand for `send all`) |
 | `cm recv [--summary]` | Receive new messages (cursor-tracked, only shows unread; `--summary` truncates to 80 chars) |
 | `cm lock <path>` | Acquire exclusive file lock (exit 2 if denied) |
 | `cm unlock <path>` | Release file lock |
@@ -84,7 +87,11 @@ Use `cm frontier --epoch N` to check, or `cm sync --epoch N` which checks automa
 | `cm watch` | Stream messages (agent mode) or all events (global mode, no agent required) |
 | `cm status` | Overview of all agents, locks, and frontier |
 
-All commands accept `--agent <id>` (overrides `CLOCKMAIL_AGENT`) and `--json` for machine-readable output. `hb` is an alias for `heartbeat`. `ex` is an alias for `exchange`.
+All commands accept `--agent <id>` (overrides `CLOCKMAIL_AGENT`) and `--json` for machine-readable output.
+
+**Aliases:** `hb` = heartbeat, `ex` = send (formerly exchange), `exchange` = send, `broadcast` = send all.
+
+**Recipients:** Use `all` as the recipient to broadcast to every registered agent (excludes self). Works with both `send` and `exchange`.
 
 ### Global Watch
 
@@ -136,6 +143,7 @@ cm init --agent alice && export CLOCKMAIL_AGENT=alice
 cm heartbeat --epoch 1
 cm lock auth.go
 cm send bob "editing auth.go"
+cm broadcast "I'm working on auth.go"    # tells all agents
 cm unlock auth.go
 cm heartbeat --epoch 2
 

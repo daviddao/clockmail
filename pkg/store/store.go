@@ -8,6 +8,8 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"math/rand"
+	"strings"
 	"time"
 
 	"github.com/daviddao/clockmail/pkg/clock"
@@ -42,6 +44,52 @@ func New(path string) (*Store, error) {
 
 // Close closes the database connection.
 func (s *Store) Close() error { return s.db.Close() }
+
+// retryOnContention retries a function up to maxRetries times when it returns
+// a transient SQLite error (BUSY, LOCKED, IOERR_SHORT_READ). Uses exponential
+// backoff with jitter to reduce thundering-herd effects under high concurrency.
+//
+// This addresses the WAL contention issue reported when 4+ agents are active
+// simultaneously (SQLITE_IOERR_SHORT_READ / error 522).
+func retryOnContention(fn func() error) error {
+	const maxRetries = 3
+	baseDelay := 50 * time.Millisecond
+
+	var err error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		err = fn()
+		if err == nil {
+			return nil
+		}
+		if !isTransientSQLiteError(err) {
+			return err
+		}
+		if attempt < maxRetries {
+			delay := baseDelay * time.Duration(1<<uint(attempt))
+			jitter := time.Duration(rand.Int63n(int64(delay / 2)))
+			time.Sleep(delay + jitter)
+		}
+	}
+	return fmt.Errorf("after %d retries: %w", maxRetries, err)
+}
+
+// isTransientSQLiteError returns true for SQLite errors that may resolve
+// on retry: BUSY, LOCKED, IOERR (including SHORT_READ variant).
+func isTransientSQLiteError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "SQLITE_BUSY") ||
+		strings.Contains(msg, "SQLITE_LOCKED") ||
+		strings.Contains(msg, "SQLITE_IOERR") ||
+		strings.Contains(msg, "database is locked") ||
+		strings.Contains(msg, "database table is locked") ||
+		strings.Contains(msg, "(5)") || // SQLITE_BUSY error code
+		strings.Contains(msg, "(6)") || // SQLITE_LOCKED error code
+		strings.Contains(msg, "(266)") || // SQLITE_IOERR_READ
+		strings.Contains(msg, "(522)") // SQLITE_IOERR_SHORT_READ
+}
 
 func (s *Store) migrate() error {
 	schema := `
@@ -98,12 +146,15 @@ func (s *Store) migrate() error {
 // RegisterAgent creates or updates an agent. Idempotent via ON CONFLICT.
 func (s *Store) RegisterAgent(id string) (*model.Agent, error) {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	_, err := s.db.Exec(
-		`INSERT INTO agents (id, clock, epoch, round, registered, last_seen)
-		 VALUES (?, 0, 0, 0, ?, ?)
-		 ON CONFLICT(id) DO UPDATE SET last_seen = excluded.last_seen`,
-		id, now, now,
-	)
+	err := retryOnContention(func() error {
+		_, err := s.db.Exec(
+			`INSERT INTO agents (id, clock, epoch, round, registered, last_seen)
+			 VALUES (?, 0, 0, 0, ?, ?)
+			 ON CONFLICT(id) DO UPDATE SET last_seen = excluded.last_seen`,
+			id, now, now,
+		)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -121,11 +172,13 @@ func (s *Store) GetAgent(id string) (*model.Agent, error) {
 // UpdateAgentClock persists the agent's current Lamport clock and position.
 func (s *Store) UpdateAgentClock(id string, clk, epoch, round int64) error {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	_, err := s.db.Exec(
-		`UPDATE agents SET clock = ?, epoch = ?, round = ?, last_seen = ? WHERE id = ?`,
-		clk, epoch, round, now, id,
-	)
-	return err
+	return retryOnContention(func() error {
+		_, err := s.db.Exec(
+			`UPDATE agents SET clock = ?, epoch = ?, round = ?, last_seen = ? WHERE id = ?`,
+			clk, epoch, round, now, id,
+		)
+		return err
+	})
 }
 
 // ListAgents returns all registered agents ordered by ID.
@@ -194,12 +247,14 @@ func (s *Store) GetCursor(agentID string) int64 {
 
 // SetCursor updates the recv cursor for an agent.
 func (s *Store) SetCursor(agentID string, sinceTS int64) error {
-	_, err := s.db.Exec(
-		`INSERT INTO cursors (agent_id, since_ts) VALUES (?, ?)
-		 ON CONFLICT(agent_id) DO UPDATE SET since_ts = excluded.since_ts`,
-		agentID, sinceTS,
-	)
-	return err
+	return retryOnContention(func() error {
+		_, err := s.db.Exec(
+			`INSERT INTO cursors (agent_id, since_ts) VALUES (?, ?)
+			 ON CONFLICT(agent_id) DO UPDATE SET since_ts = excluded.since_ts`,
+			agentID, sinceTS,
+		)
+		return err
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -208,16 +263,21 @@ func (s *Store) SetCursor(agentID string, sinceTS int64) error {
 
 // InsertEvent appends an event to the log. Returns the auto-generated row ID.
 func (s *Store) InsertEvent(e *model.Event) (int64, error) {
-	res, err := s.db.Exec(
-		`INSERT INTO events (agent_id, lamport_ts, epoch, round, kind, target, body, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.AgentID, e.LamportTS, e.Epoch, e.Round, string(e.Kind), e.Target, e.Body,
-		e.CreatedAt.Format(time.RFC3339Nano),
-	)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
+	var lastID int64
+	err := retryOnContention(func() error {
+		res, err := s.db.Exec(
+			`INSERT INTO events (agent_id, lamport_ts, epoch, round, kind, target, body, created_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			e.AgentID, e.LamportTS, e.Epoch, e.Round, string(e.Kind), e.Target, e.Body,
+			e.CreatedAt.Format(time.RFC3339Nano),
+		)
+		if err != nil {
+			return err
+		}
+		lastID, err = res.LastInsertId()
+		return err
+	})
+	return lastID, err
 }
 
 // ListEvents returns events with lamport_ts >= sinceTS, ordered by total order.
@@ -402,8 +462,10 @@ func (s *Store) AcquireLock(path, agentID string, lamportTS, epoch int64, exclus
 
 // ReleaseLock releases a file lock held by an agent.
 func (s *Store) ReleaseLock(path, agentID string) error {
-	_, err := s.db.Exec(`DELETE FROM locks WHERE path = ? AND agent_id = ?`, path, agentID)
-	return err
+	return retryOnContention(func() error {
+		_, err := s.db.Exec(`DELETE FROM locks WHERE path = ? AND agent_id = ?`, path, agentID)
+		return err
+	})
 }
 
 // ListLocks returns all active (non-expired) locks.

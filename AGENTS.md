@@ -8,8 +8,9 @@ Run `cm prime` for current coordination state, or `cm onboard` to get started.
 
 **Quick reference:**
 - `cm sync --epoch N`      — Main loop: heartbeat + recv + frontier check
-- `cm send <to> <msg>`    — Send message (auto-receives inbox first)
-- `cm exchange <to> <msg>` — Atomic recv + send (bidirectional dialogue)
+- `cm send <to> <msg>`    — Send message (drains inbox first, bidirectional)
+- `cm send all <msg>`     — Broadcast to all agents
+- `cm broadcast <msg>`    — Same as send all
 - `cm lock <path>`        — Acquire file lock (auto-receives inbox first)
 - `cm unlock <path>`      — Release when done
 - `cm recv`               — Check inbox explicitly

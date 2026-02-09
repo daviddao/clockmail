@@ -352,6 +352,156 @@ func TestPeekInbox_DoesNotAdvanceCursor(t *testing.T) {
 	}
 }
 
+// --- filterByFrom tests ---
+
+func TestFilterByFrom_MatchingSender(t *testing.T) {
+	events := []model.Event{
+		{AgentID: "alice", LamportTS: 1, Body: "hi"},
+		{AgentID: "bob", LamportTS: 2, Body: "hello"},
+		{AgentID: "alice", LamportTS: 3, Body: "again"},
+	}
+	filtered := filterByFrom(events, "alice")
+	if len(filtered) != 2 {
+		t.Fatalf("filterByFrom(alice): got %d, want 2", len(filtered))
+	}
+	if filtered[0].Body != "hi" || filtered[1].Body != "again" {
+		t.Fatal("filterByFrom should preserve order and correct messages")
+	}
+}
+
+func TestFilterByFrom_NoMatch(t *testing.T) {
+	events := []model.Event{
+		{AgentID: "alice", LamportTS: 1, Body: "hi"},
+	}
+	filtered := filterByFrom(events, "bob")
+	if len(filtered) != 0 {
+		t.Fatalf("filterByFrom(bob): got %d, want 0", len(filtered))
+	}
+}
+
+func TestFilterByFrom_EmptyEvents(t *testing.T) {
+	filtered := filterByFrom(nil, "alice")
+	if len(filtered) != 0 {
+		t.Fatal("filterByFrom on nil should return empty")
+	}
+}
+
+func TestFilterByFrom_PreservesLamportOrder(t *testing.T) {
+	// Verify that filtering preserves Lamport timestamp ordering.
+	// Per Lamport 1978, the order of events is meaningful — filtering
+	// should not reorder them.
+	events := []model.Event{
+		{AgentID: "alice", LamportTS: 1, Body: "first"},
+		{AgentID: "bob", LamportTS: 2, Body: "skip"},
+		{AgentID: "alice", LamportTS: 5, Body: "second"},
+		{AgentID: "charlie", LamportTS: 6, Body: "skip"},
+		{AgentID: "alice", LamportTS: 10, Body: "third"},
+	}
+	filtered := filterByFrom(events, "alice")
+	if len(filtered) != 3 {
+		t.Fatalf("got %d, want 3", len(filtered))
+	}
+	for i := 1; i < len(filtered); i++ {
+		if filtered[i].LamportTS <= filtered[i-1].LamportTS {
+			t.Fatalf("Lamport order violated: ts[%d]=%d <= ts[%d]=%d",
+				i, filtered[i].LamportTS, i-1, filtered[i-1].LamportTS)
+		}
+	}
+}
+
+// --- resolveRecipients tests ---
+
+func TestResolveRecipients_CommaSeparated(t *testing.T) {
+	a := newTestApp(t)
+	r, err := a.resolveRecipients("alice,bob,charlie", "sender")
+	if err != nil {
+		t.Fatalf("resolveRecipients: %v", err)
+	}
+	if len(r) != 3 || r[0] != "alice" || r[1] != "bob" || r[2] != "charlie" {
+		t.Fatalf("resolveRecipients: got %v", r)
+	}
+}
+
+func TestResolveRecipients_SingleRecipient(t *testing.T) {
+	a := newTestApp(t)
+	r, err := a.resolveRecipients("alice", "sender")
+	if err != nil {
+		t.Fatalf("resolveRecipients: %v", err)
+	}
+	if len(r) != 1 || r[0] != "alice" {
+		t.Fatalf("resolveRecipients: got %v", r)
+	}
+}
+
+func TestResolveRecipients_BroadcastAll(t *testing.T) {
+	a := newTestApp(t)
+	a.store.RegisterAgent("sender")
+	a.store.RegisterAgent("alice")
+	a.store.RegisterAgent("bob")
+
+	r, err := a.resolveRecipients("all", "sender")
+	if err != nil {
+		t.Fatalf("resolveRecipients all: %v", err)
+	}
+	if len(r) != 2 {
+		t.Fatalf("resolveRecipients all: got %d recipients, want 2 (excluding sender)", len(r))
+	}
+	// Should contain alice and bob but not sender
+	found := map[string]bool{}
+	for _, id := range r {
+		found[id] = true
+	}
+	if found["sender"] {
+		t.Fatal("broadcast should exclude sender")
+	}
+	if !found["alice"] || !found["bob"] {
+		t.Fatalf("broadcast should include alice and bob, got %v", r)
+	}
+}
+
+func TestResolveRecipients_BroadcastAllCaseInsensitive(t *testing.T) {
+	a := newTestApp(t)
+	a.store.RegisterAgent("sender")
+	a.store.RegisterAgent("alice")
+
+	r, err := a.resolveRecipients("ALL", "sender")
+	if err != nil {
+		t.Fatalf("resolveRecipients ALL: %v", err)
+	}
+	if len(r) != 1 || r[0] != "alice" {
+		t.Fatalf("resolveRecipients ALL: got %v", r)
+	}
+}
+
+func TestResolveRecipients_BroadcastNoOtherAgents(t *testing.T) {
+	a := newTestApp(t)
+	a.store.RegisterAgent("lonely")
+
+	_, err := a.resolveRecipients("all", "lonely")
+	if err == nil {
+		t.Fatal("broadcast with no other agents should return error")
+	}
+}
+
+func TestResolveRecipients_EmptyString(t *testing.T) {
+	a := newTestApp(t)
+	_, err := a.resolveRecipients("", "sender")
+	if err == nil {
+		t.Fatal("empty recipients should return error")
+	}
+}
+
+func TestResolveRecipients_TrimsWhitespace(t *testing.T) {
+	a := newTestApp(t)
+	r, err := a.resolveRecipients(" alice , bob ", "sender")
+	if err != nil {
+		t.Fatalf("resolveRecipients: %v", err)
+	}
+	if len(r) != 2 || r[0] != "alice" || r[1] != "bob" {
+		t.Fatalf("resolveRecipients: got %v", r)
+	}
+}
+
 // --- Helpers ---
 
 func captureStdout(t *testing.T, fn func()) string {
