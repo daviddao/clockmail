@@ -269,6 +269,16 @@ func (s *Store) MaxEventID() int64 {
 	return id
 }
 
+// CountEvents returns the total number of events in the log.
+// Unlike MaxEventID, this is correct even if event IDs have gaps.
+func (s *Store) CountEvents() int64 {
+	var count int64
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM events`).Scan(&count); err != nil {
+		return 0
+	}
+	return count
+}
+
 // ListEventsForAgent returns messages targeted to agentID since sinceTS.
 func (s *Store) ListEventsForAgent(agentID string, sinceTS int64, limit int) ([]model.Event, error) {
 	if limit <= 0 {
