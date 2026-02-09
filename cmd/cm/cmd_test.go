@@ -502,6 +502,238 @@ func TestResolveRecipients_TrimsWhitespace(t *testing.T) {
 	}
 }
 
+// --- agentPresence tests ---
+
+func TestAgentPresence_Online(t *testing.T) {
+	ag := model.Agent{ID: "alice", LastSeen: time.Now().Add(-30 * time.Second)}
+	if got := agentPresence(ag); got != "online" {
+		t.Fatalf("agentPresence 30s ago: got %q, want online", got)
+	}
+}
+
+func TestAgentPresence_Idle(t *testing.T) {
+	ag := model.Agent{ID: "alice", LastSeen: time.Now().Add(-5 * time.Minute)}
+	if got := agentPresence(ag); got != "idle" {
+		t.Fatalf("agentPresence 5min ago: got %q, want idle", got)
+	}
+}
+
+func TestAgentPresence_Offline(t *testing.T) {
+	ag := model.Agent{ID: "alice", LastSeen: time.Now().Add(-15 * time.Minute)}
+	if got := agentPresence(ag); got != "offline" {
+		t.Fatalf("agentPresence 15min ago: got %q, want offline", got)
+	}
+}
+
+func TestAgentPresence_Boundary_Online(t *testing.T) {
+	// Exactly at 2 minute boundary should be idle (>= 2min)
+	ag := model.Agent{ID: "alice", LastSeen: time.Now().Add(-2*time.Minute - time.Second)}
+	if got := agentPresence(ag); got != "idle" {
+		t.Fatalf("agentPresence at 2min+1s: got %q, want idle", got)
+	}
+}
+
+func TestAgentPresence_Boundary_Idle(t *testing.T) {
+	// Exactly at 10 minute boundary should be offline (>= 10min)
+	ag := model.Agent{ID: "alice", LastSeen: time.Now().Add(-10*time.Minute - time.Second)}
+	if got := agentPresence(ag); got != "offline" {
+		t.Fatalf("agentPresence at 10min+1s: got %q, want offline", got)
+	}
+}
+
+// --- presenceIndicator tests ---
+
+func TestPresenceIndicator_Online(t *testing.T) {
+	if got := presenceIndicator("online"); got != "[+]" {
+		t.Fatalf("presenceIndicator(online): got %q, want [+]", got)
+	}
+}
+
+func TestPresenceIndicator_Idle(t *testing.T) {
+	if got := presenceIndicator("idle"); got != "[~]" {
+		t.Fatalf("presenceIndicator(idle): got %q, want [~]", got)
+	}
+}
+
+func TestPresenceIndicator_Offline(t *testing.T) {
+	if got := presenceIndicator("offline"); got != "[-]" {
+		t.Fatalf("presenceIndicator(offline): got %q, want [-]", got)
+	}
+}
+
+func TestPresenceIndicator_Unknown(t *testing.T) {
+	if got := presenceIndicator("unknown"); got != "[-]" {
+		t.Fatalf("presenceIndicator(unknown): got %q, want [-]", got)
+	}
+}
+
+// --- gate command tests ---
+
+func TestGateCheck_SafeWhenAllAgentsPastEpoch(t *testing.T) {
+	a := newTestApp(t)
+	a.store.RegisterAgent("alice")
+	a.store.RegisterAgent("bob")
+	// Both agents at epoch 2, checking if epoch 1 is safe
+	a.store.UpdateAgentClock("alice", 10, 2, 0)
+	a.store.UpdateAgentClock("bob", 8, 2, 0)
+
+	out := captureStdout(t, func() {
+		code := a.gateCheck("alice", model.Timestamp{Epoch: 1, Round: 0}, false)
+		if code != 0 {
+			t.Fatalf("gateCheck: expected exit 0 (safe), got %d", code)
+		}
+	})
+	if !strings.Contains(out, "SAFE") {
+		t.Fatalf("gateCheck output should contain SAFE, got %q", out)
+	}
+}
+
+func TestGateCheck_NotSafeWhenAgentBehind(t *testing.T) {
+	a := newTestApp(t)
+	a.store.RegisterAgent("alice")
+	a.store.RegisterAgent("bob")
+	// alice at epoch 2, bob still at epoch 1 — epoch 1 not safe
+	a.store.UpdateAgentClock("alice", 10, 2, 0)
+	a.store.UpdateAgentClock("bob", 8, 1, 0)
+
+	out := captureStdout(t, func() {
+		code := a.gateCheck("alice", model.Timestamp{Epoch: 1, Round: 0}, false)
+		if code != 2 {
+			t.Fatalf("gateCheck: expected exit 2 (not safe), got %d", code)
+		}
+	})
+	if !strings.Contains(out, "NOT SAFE") {
+		t.Fatalf("gateCheck output should contain NOT SAFE, got %q", out)
+	}
+	if !strings.Contains(out, "bob") {
+		t.Fatalf("gateCheck output should show blocker 'bob', got %q", out)
+	}
+}
+
+func TestGateCheck_JSON(t *testing.T) {
+	a := newTestApp(t)
+	a.store.RegisterAgent("alice")
+	a.store.RegisterAgent("bob")
+	a.store.UpdateAgentClock("alice", 10, 2, 0)
+	a.store.UpdateAgentClock("bob", 8, 2, 0)
+
+	out := captureStdout(t, func() {
+		code := a.gateCheck("alice", model.Timestamp{Epoch: 1, Round: 0}, true)
+		if code != 0 {
+			t.Fatalf("gateCheck JSON: expected exit 0, got %d", code)
+		}
+	})
+	if !strings.Contains(out, `"safe"`) {
+		t.Fatalf("gateCheck JSON output should contain 'safe' field, got %q", out)
+	}
+	if !strings.Contains(out, `"mode"`) {
+		t.Fatalf("gateCheck JSON output should contain 'mode' field, got %q", out)
+	}
+}
+
+func TestGateCheck_NotSafe_JSON(t *testing.T) {
+	a := newTestApp(t)
+	a.store.RegisterAgent("alice")
+	a.store.RegisterAgent("bob")
+	a.store.UpdateAgentClock("alice", 10, 2, 0)
+	a.store.UpdateAgentClock("bob", 8, 0, 0) // bob behind
+
+	out := captureStdout(t, func() {
+		code := a.gateCheck("alice", model.Timestamp{Epoch: 1, Round: 0}, true)
+		if code != 2 {
+			t.Fatalf("gateCheck JSON not safe: expected exit 2, got %d", code)
+		}
+	})
+	if !strings.Contains(out, `"safe"`) {
+		t.Fatalf("gateCheck JSON not safe output should contain 'safe' field, got %q", out)
+	}
+}
+
+func TestCheckFrontierSafe_Safe(t *testing.T) {
+	a := newTestApp(t)
+	a.store.RegisterAgent("alice")
+	a.store.RegisterAgent("bob")
+	a.store.UpdateAgentClock("alice", 10, 3, 0)
+	a.store.UpdateAgentClock("bob", 8, 3, 0)
+
+	if !a.checkFrontierSafe("alice", model.Timestamp{Epoch: 2, Round: 0}) {
+		t.Fatal("checkFrontierSafe: should be safe when all agents past epoch")
+	}
+}
+
+func TestCheckFrontierSafe_NotSafe(t *testing.T) {
+	a := newTestApp(t)
+	a.store.RegisterAgent("alice")
+	a.store.RegisterAgent("bob")
+	a.store.UpdateAgentClock("alice", 10, 3, 0)
+	a.store.UpdateAgentClock("bob", 8, 1, 0)
+
+	if a.checkFrontierSafe("alice", model.Timestamp{Epoch: 2, Round: 0}) {
+		t.Fatal("checkFrontierSafe: should NOT be safe when bob at epoch 1")
+	}
+}
+
+func TestGateWait_ImmediatelySafe(t *testing.T) {
+	a := newTestApp(t)
+	a.store.RegisterAgent("alice")
+	a.store.RegisterAgent("bob")
+	a.store.UpdateAgentClock("alice", 10, 5, 0)
+	a.store.UpdateAgentClock("bob", 8, 5, 0)
+
+	out := captureStdout(t, func() {
+		code := a.gateWait("alice", model.Timestamp{Epoch: 2, Round: 0},
+			5*time.Second, 100*time.Millisecond, false)
+		if code != 0 {
+			t.Fatalf("gateWait immediately safe: expected exit 0, got %d", code)
+		}
+	})
+	if !strings.Contains(out, "SAFE") {
+		t.Fatalf("gateWait output should contain SAFE, got %q", out)
+	}
+}
+
+func TestGateWait_ImmediatelySafe_JSON(t *testing.T) {
+	a := newTestApp(t)
+	a.store.RegisterAgent("alice")
+	a.store.RegisterAgent("bob")
+	a.store.UpdateAgentClock("alice", 10, 5, 0)
+	a.store.UpdateAgentClock("bob", 8, 5, 0)
+
+	out := captureStdout(t, func() {
+		code := a.gateWait("alice", model.Timestamp{Epoch: 2, Round: 0},
+			5*time.Second, 100*time.Millisecond, true)
+		if code != 0 {
+			t.Fatalf("gateWait immediately safe JSON: expected exit 0, got %d", code)
+		}
+	})
+	if !strings.Contains(out, `"safe"`) {
+		t.Fatalf("gateWait JSON output should contain 'safe' field, got %q", out)
+	}
+	if !strings.Contains(out, `"wait"`) {
+		t.Fatalf("gateWait JSON output should contain 'wait' mode, got %q", out)
+	}
+}
+
+func TestGateWait_Timeout(t *testing.T) {
+	a := newTestApp(t)
+	a.store.RegisterAgent("alice")
+	a.store.RegisterAgent("bob")
+	a.store.UpdateAgentClock("alice", 10, 5, 0)
+	a.store.UpdateAgentClock("bob", 8, 0, 0) // bob far behind
+
+	// Use a very short timeout so test completes quickly
+	stderr := captureStderr(t, func() {
+		code := a.gateWait("alice", model.Timestamp{Epoch: 4, Round: 0},
+			200*time.Millisecond, 50*time.Millisecond, false)
+		if code != 1 {
+			t.Fatalf("gateWait timeout: expected exit 1, got %d", code)
+		}
+	})
+	if !strings.Contains(stderr, "TIMEOUT") {
+		t.Fatalf("gateWait timeout output should contain TIMEOUT, got %q", stderr)
+	}
+}
+
 // --- Helpers ---
 
 func captureStdout(t *testing.T, fn func()) string {

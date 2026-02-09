@@ -31,9 +31,19 @@ func (a *app) cmdStatus(args []string) int {
 	active, _ := a.store.GetActivePointstamps()
 	f := frontier.ComputeFrontier(active)
 
+	// Compute presence for each agent.
+	type agentInfo struct {
+		model.Agent
+		Presence string `json:"presence"`
+	}
+	agentInfos := make([]agentInfo, len(agents))
+	for i, ag := range agents {
+		agentInfos[i] = agentInfo{Agent: ag, Presence: agentPresence(ag)}
+	}
+
 	if *jsonOut {
 		result := map[string]interface{}{
-			"agents":   agents,
+			"agents":   agentInfos,
 			"locks":    locks,
 			"frontier": f,
 		}
@@ -44,18 +54,15 @@ func (a *app) cmdStatus(args []string) int {
 		printJSON(result)
 	} else {
 		fmt.Println("agents:")
-		for _, ag := range agents {
+		for _, ai := range agentInfos {
 			marker := ""
-			if ag.ID == agentID {
+			if ai.ID == agentID {
 				marker = " <-- you"
 			}
-			stale := ""
-			if time.Since(ag.LastSeen) > 10*time.Minute {
-				stale = " (stale)"
-			}
-			fmt.Printf("  %-20s clock=%-4d epoch=%-3d round=%-3d last_seen=%s%s%s\n",
-				ag.ID, ag.Clock, ag.Epoch, ag.Round,
-				ag.LastSeen.Format("15:04:05"), stale, marker)
+			presence := presenceIndicator(ai.Presence)
+			fmt.Printf("  %s %-20s clock=%-4d epoch=%-3d round=%-3d last_seen=%s%s\n",
+				presence, ai.ID, ai.Clock, ai.Epoch, ai.Round,
+				ai.LastSeen.Format("15:04:05"), marker)
 		}
 
 		if len(locks) > 0 {
@@ -98,4 +105,32 @@ func agentTimestamp(agents []model.Agent, id string) model.Timestamp {
 		}
 	}
 	return model.Timestamp{}
+}
+
+// agentPresence returns a presence string based on last_seen time.
+//   - "online"  — seen within 2 minutes
+//   - "idle"    — seen within 10 minutes
+//   - "offline" — not seen for 10+ minutes
+func agentPresence(ag model.Agent) string {
+	since := time.Since(ag.LastSeen)
+	switch {
+	case since < 2*time.Minute:
+		return "online"
+	case since < 10*time.Minute:
+		return "idle"
+	default:
+		return "offline"
+	}
+}
+
+// presenceIndicator returns a short text indicator for display.
+func presenceIndicator(presence string) string {
+	switch presence {
+	case "online":
+		return "[+]"
+	case "idle":
+		return "[~]"
+	default:
+		return "[-]"
+	}
 }

@@ -109,17 +109,66 @@ At minimum, run `cm sync --epoch N` (which includes recv) at these points:
 4. **Before committing** — check if another agent's work affects yours
 5. **Session end** — always
 
-## Understanding Epochs
+## Understanding Epochs and Rounds
 
-An epoch represents a phase of work. The frontier tells you whether all agents have finished a given epoch. If the frontier says `NOT SAFE to finalize epoch=1`, at least one agent is still working in epoch 1. Wait before assuming epoch 1 is complete.
+An epoch represents a phase of work. A round represents a refinement within that epoch. Together they give the Naiad frontier meaning.
 
 Advance your epoch with `cm heartbeat --epoch N` or `cm sync --epoch N`.
+
+### Epoch-Round Convention
+
+Use rounds to signal sub-phases within an epoch:
+
+| Phase | Epoch | Round | Meaning |
+|-------|-------|-------|---------|
+| Implementation | 0 | 0 | Writing code |
+| Ready for review | 0 | 1 | Code complete, requesting review |
+| Review feedback | 0 | 2 | Review done, fixes needed |
+| Fixes applied | 0 | 3 | Fixes complete, ready for verification |
+| Verified / Done | 1 | 0 | All clear, moving to next feature |
+
+```bash
+# Developer finishes coding
+cm sync --epoch 0 --round 1
+cm broadcast "epoch 0 code complete, ready for review"
+
+# Tester sees frontier advance, reviews
+cm sync --epoch 0 --round 2
+cm send developer "review done, found 2 issues"
+
+# Developer fixes
+cm sync --epoch 0 --round 3
+cm send tester "fixes applied"
+
+# Tester verifies, everyone advances
+cm sync --epoch 1 --round 0
+cm broadcast "epoch 0 verified, moving to epoch 1"
+```
+
+The frontier becomes meaningful: when ALL agents reach epoch=1, the epoch=0 work is **done**. This is exactly Naiad's progress tracking applied to software development.
 
 ### How to pick your epoch number
 
 When starting a fresh session, run `cm status` to see what epoch other agents are at. Set yours to the same epoch as the current work phase. When you finish a phase and move to the next, increment.
 
 If the project uses beads (`bd`) for issue tracking, use the convention below.
+
+### Test Gating with `cm gate`
+
+The `cm gate` command blocks until the Naiad frontier passes a given epoch. This is the proper way to gate tests on completion of upstream work:
+
+```bash
+# Tester: wait until all agents finish epoch 0, then test
+cm gate --epoch 0 && go test ./... && cm sync --epoch 1
+
+# Quick check without blocking
+cm gate --epoch 0 --check   # exit 0 if safe, exit 2 if not
+
+# With timeout
+cm gate --epoch 0 --timeout 5m --interval 5s
+```
+
+This implements the Naiad insight: an operator should only process inputs at timestamp T after confirming no more inputs can arrive at T. In our model, the "operator" is the tester and "timestamp T" is the epoch.
 
 ## Epochs with Beads
 
@@ -226,6 +275,12 @@ Failing to unlock leaves files blocked for other agents until TTL expiry.
 
 ## Patterns
 
+**Broadcasting status:**
+```bash
+cm broadcast "starting auth refactor — editing auth.go and session.go"
+cm broadcast "auth refactor done, advancing to epoch 2"
+```
+
 **Ping-pong coordination:**
 ```bash
 # Agent A
@@ -238,11 +293,19 @@ cm sync --epoch 2
 cm lock shared.go  # now succeeds
 ```
 
-**Waiting for frontier:**
+**Test gating (tester agent):**
 ```bash
-# Check if all agents finished epoch 1
-cm frontier --epoch 1
-# SAFE = proceed; NOT SAFE = wait and retry
+# Wait for all agents to finish implementation (epoch 0)
+cm gate --epoch 0
+# All agents are past epoch 0 — safe to test
+go test ./...
+cm sync --epoch 1   # signal testing is done
+```
+
+**Frontier check (non-blocking):**
+```bash
+cm gate --epoch 1 --check    # exit 0=safe, 2=not safe
+cm frontier --epoch 1        # detailed frontier output
 ```
 
 **Batch operations:**
@@ -250,4 +313,9 @@ cm frontier --epoch 1
 cm lock auth.go && cm lock session.go   # lock multiple files
 # ... work on both ...
 cm unlock auth.go && cm unlock session.go && cm sync --epoch 2
+```
+
+**Agent presence check:**
+```bash
+cm status   # shows [+] online, [~] idle, [-] offline for each agent
 ```

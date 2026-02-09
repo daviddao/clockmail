@@ -65,6 +65,8 @@ func main() {
 		os.Exit(a.cmdLock(os.Args[2:]))
 	case "unlock":
 		os.Exit(a.cmdUnlock(os.Args[2:]))
+	case "gate":
+		os.Exit(a.cmdGate(os.Args[2:]))
 	case "frontier":
 		os.Exit(a.cmdFrontier(os.Args[2:]))
 	case "log":
@@ -105,6 +107,7 @@ Commands:
   recv [--since N] [--summary]  Receive messages (Lamport IR2)
   lock <path> [--ttl N]     Acquire exclusive file lock (total order)
   unlock <path>             Release a file lock
+  gate --epoch N [--check]  Block until frontier passes epoch (test gating)
   frontier [--epoch N]      Check Naiad frontier safety
   log [--since N]           Query the append-only event log
   sync [--epoch N]          Combined: heartbeat + recv + frontier
@@ -132,7 +135,7 @@ All commands support --agent <id> to override CLOCKMAIL_AGENT.
 Exit codes:
   0  success
   1  error
-  2  lock denied (conflict)
+  2  lock denied / gate not safe (conflict)
 `)
 }
 
