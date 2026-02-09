@@ -42,6 +42,26 @@ Message other agents when:
 - You've found a bug or issue in their area
 - You're about to edit something near their work area
 
+### Proactive Status Broadcasting
+
+**Agents should regularly broadcast what they are working on to all other active agents.** This keeps everyone informed and prevents conflicts before they happen. Don't wait for a specific trigger — send status updates proactively as part of your work loop.
+
+When to broadcast:
+- When you start a new task or pick up work from `bd ready`
+- When you make significant progress or change direction
+- When you finish a task and are about to move on
+- Periodically during long tasks (roughly every major milestone)
+
+Use `cm status` to see who is active, then message each agent:
+
+```bash
+# Broadcast your current work to all active agents
+cm send alice "working on auth refactor — editing auth.go and session.go"
+cm send bob "working on auth refactor — editing auth.go and session.go"
+```
+
+Keep messages concise but informative — include **what** you're working on and **which files** you're touching. This lets other agents plan around your work and avoid lock contention.
+
 Messages are delivered on `cm recv` or `cm sync`. They are not pushed — the recipient must poll.
 
 ## Understanding Epochs
