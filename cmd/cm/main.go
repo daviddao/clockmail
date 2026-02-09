@@ -107,7 +107,7 @@ Commands:
   frontier [--epoch N]      Check Naiad frontier safety
   log [--since N]           Query the append-only event log
   sync [--epoch N]          Combined: heartbeat + recv + frontier
-  watch [--interval N]      Stream messages as they arrive
+  watch [--interval N]      Stream messages (or all events with --all)
   status                    Show agent state, locks, frontier overview
 
 Aliases:

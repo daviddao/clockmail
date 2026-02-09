@@ -225,6 +225,36 @@ func (s *Store) ListEvents(sinceTS int64, limit int) ([]model.Event, error) {
 	return scanEvents(rows)
 }
 
+// ListEventsSinceID returns events with row ID > sinceID, ordered by ID.
+// This is useful for tailing the event log without missing events that
+// share a Lamport timestamp.
+func (s *Store) ListEventsSinceID(sinceID int64, limit int) ([]model.Event, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.db.Query(
+		`SELECT id, agent_id, lamport_ts, epoch, round, kind,
+		        COALESCE(target,''), COALESCE(body,''), created_at
+		 FROM events WHERE id > ?
+		 ORDER BY id ASC LIMIT ?`,
+		sinceID, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanEvents(rows)
+}
+
+// MaxEventID returns the highest event row ID, or 0 if the log is empty.
+func (s *Store) MaxEventID() int64 {
+	var id int64
+	if err := s.db.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM events`).Scan(&id); err != nil {
+		return 0
+	}
+	return id
+}
+
 // ListEventsForAgent returns messages targeted to agentID since sinceTS.
 func (s *Store) ListEventsForAgent(agentID string, sinceTS int64, limit int) ([]model.Event, error) {
 	if limit <= 0 {

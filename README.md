@@ -81,10 +81,24 @@ Use `cm frontier --epoch N` to check, or `cm sync --epoch N` which checks automa
 | `cm frontier [--epoch N]` | Check if epoch N is safe to finalize |
 | `cm log` | Show all events in causal order |
 | `cm sync [--epoch N]` | Combined: heartbeat + recv + frontier |
-| `cm watch` | Stream messages as they arrive (blocks until Ctrl-C) |
+| `cm watch` | Stream messages (agent mode) or all events (global mode, no agent required) |
 | `cm status` | Overview of all agents, locks, and frontier |
 
-All commands accept `--agent <id>` (overrides `CLOCKMAIL_AGENT`) and `--json` for machine-readable output. `hb` is an alias for `heartbeat`.
+All commands accept `--agent <id>` (overrides `CLOCKMAIL_AGENT`) and `--json` for machine-readable output. `hb` is an alias for `heartbeat`. `ex` is an alias for `exchange`.
+
+### Global Watch
+
+`cm watch` without an agent streams **all events from all agents** in real-time — messages, lock requests, heartbeats, everything. This is a read-only passive observer with no clock side-effects.
+
+```bash
+cm watch                     # global stream (no CLOCKMAIL_AGENT needed)
+cm watch --all               # explicit global even with CLOCKMAIL_AGENT set
+cm watch --all --kind msg    # global, filtered to messages only
+cm watch --kind lock_req     # global, filtered to lock activity
+cm watch                     # with CLOCKMAIL_AGENT set: agent inbox (original behavior)
+```
+
+The global mode tracks events by row ID rather than Lamport timestamp, so it never misses events that share a timestamp.
 
 ## Environment Variables
 
