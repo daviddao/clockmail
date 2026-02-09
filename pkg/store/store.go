@@ -343,7 +343,11 @@ func (s *Store) AcquireLock(path, agentID string, lamportTS, epoch int64, exclus
 		&conflict.Exclusive, &conflictExpires)
 
 	if err == nil {
-		conflict.ExpiresAt, _ = time.Parse(time.RFC3339Nano, conflictExpires)
+		var parseErr error
+		conflict.ExpiresAt, parseErr = time.Parse(time.RFC3339Nano, conflictExpires)
+		if parseErr != nil {
+			return nil, nil, fmt.Errorf("parse lock expires_at for %s: %w", conflict.Path, parseErr)
+		}
 		if clock.TotalOrderLess(lamportTS, agentID, conflict.LamportTS, conflict.AgentID) {
 			// Requester wins — evict the existing lock.
 			if _, err := tx.Exec(`DELETE FROM locks WHERE path = ? AND agent_id = ?`,
@@ -459,7 +463,11 @@ func scanLocks(rows *sql.Rows) ([]model.Lock, error) {
 			return nil, err
 		}
 		l.Exclusive = excl != 0
-		l.ExpiresAt, _ = time.Parse(time.RFC3339Nano, expStr)
+		var parseErr error
+		l.ExpiresAt, parseErr = time.Parse(time.RFC3339Nano, expStr)
+		if parseErr != nil {
+			return nil, fmt.Errorf("parse lock expires_at for %s: %w", l.Path, parseErr)
+		}
 		locks = append(locks, l)
 	}
 	return locks, rows.Err()
