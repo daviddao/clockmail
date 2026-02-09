@@ -64,6 +64,43 @@ Keep messages concise but informative — include **what** you're working on and
 
 Messages are delivered on `cm recv` or `cm sync`. They are not pushed — the recipient must poll.
 
+**Note:** `cm send` and `cm lock` now auto-receive pending messages before acting. This means every outbound action doubles as an inbox check. You will see pending messages printed to stderr automatically.
+
+## CRITICAL: Read Before You Act
+
+**Every outbound action is now an inbox check.** `cm send` and `cm lock` automatically drain your inbox and print pending messages before executing. This ensures bidirectional communication happens naturally.
+
+However, you MUST still read and react to what you receive. When `cm send` prints pending messages before your send, **stop and read them**. They may change what you should do next.
+
+### The Receive-Act-Send Loop
+
+The correct coordination pattern is:
+
+```bash
+# 1. Check inbox (explicit) — do this at the start of every major task
+cm recv
+
+# 2. React to what you learned — adapt your plan
+
+# 3. Send your update — inbox is auto-checked again here
+cm send <agent> "your message"
+```
+
+### When to use `cm exchange` vs `cm send`
+
+- **`cm exchange <to> <msg>`** — Use this when you're having a conversation. It prints received messages prominently, then sends. Makes the bidirectional pattern explicit.
+- **`cm send <to> <msg>`** — Still auto-receives, but the inbox output goes to stderr. Use for fire-and-forget broadcasts where you don't expect a reply.
+- **`cm recv`** — Use standalone when you just want to check your inbox without sending anything.
+
+### Minimum Coordination Cadence
+
+At minimum, run `cm sync --epoch N` (which includes recv) at these points:
+1. **Session start** — before any work
+2. **Before acquiring a lock** — the holder may have sent a release notification
+3. **After completing a task** — before moving to the next one
+4. **Before committing** — check if another agent's work affects yours
+5. **Session end** — always
+
 ## Understanding Epochs
 
 An epoch represents a phase of work. The frontier tells you whether all agents have finished a given epoch. If the frontier says `NOT SAFE to finalize epoch=1`, at least one agent is still working in epoch 1. Wait before assuming epoch 1 is complete.

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/daviddao/clockmail/internal/frontier"
-	"github.com/daviddao/clockmail/internal/model"
+	"github.com/daviddao/clockmail/pkg/frontier"
+	"github.com/daviddao/clockmail/pkg/model"
 )
 
 func (a *app) cmdPrime(args []string) int {
@@ -33,11 +33,10 @@ func (a *app) cmdPrime(args []string) int {
 	}
 
 	// Pending messages.
-	var pendingCount int
+	var pendingMsgs []model.Event
 	if agentID != "" {
 		cursor := a.store.GetCursor(agentID)
-		msgs, _ := a.store.ListEventsForAgent(agentID, cursor, 1000)
-		pendingCount = len(msgs)
+		pendingMsgs, _ = a.store.ListEventsForAgent(agentID, cursor, 1000)
 	}
 
 	// My locks.
@@ -115,9 +114,16 @@ func (a *app) cmdPrime(args []string) int {
 		fmt.Println()
 	}
 
-	if pendingCount > 0 {
-		fmt.Printf("## Pending Messages: %d\n", pendingCount)
-		fmt.Println("  Run: cm recv")
+	if len(pendingMsgs) > 0 {
+		fmt.Printf("## Pending Messages: %d\n", len(pendingMsgs))
+		for _, e := range pendingMsgs {
+			body := e.Body
+			if len(body) > 100 {
+				body = body[:100] + "..."
+			}
+			fmt.Printf("  [ts=%d] %s: %s\n", e.LamportTS, e.AgentID, body)
+		}
+		fmt.Println("  Run: cm recv   (to acknowledge and advance cursor)")
 	} else {
 		fmt.Println("## Pending Messages: 0")
 	}

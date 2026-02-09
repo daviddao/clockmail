@@ -56,6 +56,8 @@ func main() {
 		os.Exit(a.cmdHeartbeat(os.Args[2:]))
 	case "send":
 		os.Exit(a.cmdSend(os.Args[2:]))
+	case "exchange", "ex":
+		os.Exit(a.cmdExchange(os.Args[2:]))
 	case "recv":
 		os.Exit(a.cmdRecv(os.Args[2:]))
 	case "lock":
@@ -97,7 +99,8 @@ Setup:
 Commands:
   register <agent_id>       Register an agent session
   heartbeat [--epoch N]     Advance clock, report working position
-  send <to> <message>       Send a message (Lamport IR1)
+  send <to> <message>       Send a message (auto-receives first)
+  exchange <to> <message>  Atomic recv + send (explicit bidirectional)
   recv [--since N] [--summary]  Receive messages (Lamport IR2)
   lock <path> [--ttl N]     Acquire exclusive file lock (total order)
   unlock <path>             Release a file lock
@@ -109,6 +112,7 @@ Commands:
 
 Aliases:
   hb = heartbeat
+  ex = exchange
 
 Environment:
   CLOCKMAIL_DB      SQLite database path (default: .clockmail/clockmail.db)

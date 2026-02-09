@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/daviddao/clockmail/internal/model"
+	"github.com/daviddao/clockmail/pkg/model"
 )
 
 func (a *app) cmdLock(args []string) int {
@@ -33,6 +33,13 @@ func (a *app) cmdLock(args []string) int {
 	ep, rn := a.resolveEpochRound(agentID, *epoch, -1)
 
 	c := a.getClock(agentID)
+
+	// Auto-recv: show pending messages (lock holders may have sent releases).
+	inbox := a.drainInbox(agentID, c)
+	if !*jsonOut {
+		printInbox(inbox)
+	}
+
 	ts := c.Tick()
 	_ = a.store.UpdateAgentClock(agentID, ts, ep, rn)
 
@@ -62,6 +69,7 @@ func (a *app) cmdLock(args []string) int {
 				"conflict": conflict,
 				"resolution": fmt.Sprintf("%s holds lock with lower total order (%d,%q) vs (%d,%q)",
 					conflict.AgentID, conflict.LamportTS, conflict.AgentID, ts, agentID),
+				"inbox": inbox, "inbox_count": len(inbox),
 			})
 		} else {
 			fmt.Printf("DENIED: %s holds %s (ts=%d < %d)\n",
@@ -71,7 +79,8 @@ func (a *app) cmdLock(args []string) int {
 	}
 
 	if *jsonOut {
-		printJSON(map[string]interface{}{"granted": true, "lock": lock, "lamport_ts": ts})
+		printJSON(map[string]interface{}{"granted": true, "lock": lock, "lamport_ts": ts,
+			"inbox": inbox, "inbox_count": len(inbox)})
 	} else {
 		fmt.Printf("locked %s (ts=%d, ttl=%ds)\n", path, ts, *ttlSec)
 	}

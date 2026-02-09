@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/daviddao/clockmail/internal/frontier"
-	"github.com/daviddao/clockmail/internal/model"
+	"github.com/daviddao/clockmail/pkg/frontier"
+	"github.com/daviddao/clockmail/pkg/model"
 )
 
 func (a *app) cmdSync(args []string) int {
@@ -82,14 +82,21 @@ func (a *app) cmdSync(args []string) int {
 			"locks":            locks,
 		})
 	} else {
-		fmt.Printf("sync %s ts=%d epoch=%d round=%d\n", agentID, newTS, *epoch, *round)
-
+		// Messages FIRST — the most important output for agent coordination.
 		if len(messages) > 0 {
-			fmt.Printf("  %d new messages:\n", len(messages))
+			fmt.Printf("\n=== %d new message(s) ===\n", len(messages))
 			for _, e := range messages {
-				fmt.Printf("    [ts=%d] %s: %s\n", e.LamportTS, e.AgentID, e.Body)
+				body := e.Body
+				if len(body) > 120 {
+					body = body[:120] + "..."
+				}
+				fmt.Printf("  [ts=%d] %s: %s\n", e.LamportTS, e.AgentID, body)
 			}
+			fmt.Println("========================")
+			fmt.Println()
 		}
+
+		fmt.Printf("sync %s ts=%d epoch=%d round=%d\n", agentID, newTS, *epoch, *round)
 
 		if fStatus.SafeToFinalize {
 			fmt.Printf("  frontier: SAFE to finalize epoch=%d round=%d\n", *epoch, *round)

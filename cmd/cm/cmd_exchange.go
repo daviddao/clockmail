@@ -10,8 +10,13 @@ import (
 	"github.com/daviddao/clockmail/pkg/model"
 )
 
-func (a *app) cmdSend(args []string) int {
-	flags := flag.NewFlagSet("send", flag.ContinueOnError)
+// cmdExchange is an atomic recv + send: drains the inbox, prints messages,
+// then sends a reply. This makes bidirectional communication the default
+// pattern — every outbound message forces reading inbound ones first.
+//
+// Usage: cm exchange <to> <message>
+func (a *app) cmdExchange(args []string) int {
+	flags := flag.NewFlagSet("exchange", flag.ContinueOnError)
 	agent := flags.String("agent", "", "sender agent ID")
 	epoch := flags.Int64("epoch", -1, "epoch context (-1 = keep current)")
 	round := flags.Int64("round", -1, "round context (-1 = keep current)")
@@ -20,7 +25,8 @@ func (a *app) cmdSend(args []string) int {
 		return 1
 	}
 	if flags.NArg() < 2 {
-		fmt.Fprintln(os.Stderr, "usage: cm send <to> <message> [--agent ID] [--json]")
+		fmt.Fprintln(os.Stderr, "usage: cm exchange <to> <message> [--agent ID] [--json]")
+		fmt.Fprintln(os.Stderr, "  Atomic recv + send: reads inbox, then sends reply.")
 		return 1
 	}
 
@@ -36,12 +42,27 @@ func (a *app) cmdSend(args []string) int {
 
 	c := a.getClock(agentID)
 
-	// Auto-recv: drain inbox before sending so agents see replies.
+	// Step 1: Drain inbox (Lamport IR2).
 	inbox := a.drainInbox(agentID, c)
 	if !*jsonOut {
-		printInbox(inbox)
+		if len(inbox) > 0 {
+			fmt.Printf("=== %d received message(s) ===\n", len(inbox))
+			for _, e := range inbox {
+				msgBody := e.Body
+				if len(msgBody) > 120 {
+					msgBody = msgBody[:120] + "..."
+				}
+				fmt.Printf("  [ts=%d] %s: %s\n", e.LamportTS, e.AgentID, msgBody)
+			}
+			fmt.Println("============================")
+			fmt.Println()
+		} else {
+			fmt.Println("(no pending messages)")
+			fmt.Println()
+		}
 	}
 
+	// Step 2: Send (Lamport IR1).
 	ts := c.Tick()
 	_ = a.store.UpdateAgentClock(agentID, ts, ep, rn)
 
@@ -63,7 +84,7 @@ func (a *app) cmdSend(args []string) int {
 			CreatedAt: time.Now().UTC(),
 		})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "cm: send: %v\n", err)
+			fmt.Fprintf(os.Stderr, "cm: exchange: send: %v\n", err)
 			return 1
 		}
 		eventIDs = append(eventIDs, id)
@@ -71,8 +92,11 @@ func (a *app) cmdSend(args []string) int {
 
 	if *jsonOut {
 		printJSON(map[string]interface{}{
-			"lamport_ts": ts, "event_ids": eventIDs, "recipients": len(eventIDs),
-			"inbox": inbox, "inbox_count": len(inbox),
+			"lamport_ts":  ts,
+			"event_ids":   eventIDs,
+			"recipients":  len(eventIDs),
+			"inbox":       inbox,
+			"inbox_count": len(inbox),
 		})
 	} else {
 		fmt.Printf("sent to %s at ts=%d (%d recipients)\n", to, ts, len(eventIDs))

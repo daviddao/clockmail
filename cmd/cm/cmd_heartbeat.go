@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/daviddao/clockmail/internal/model"
+	"github.com/daviddao/clockmail/pkg/model"
 )
 
 func (a *app) cmdHeartbeat(args []string) int {

@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/daviddao/clockmail/internal/frontier"
-	"github.com/daviddao/clockmail/internal/model"
+	"github.com/daviddao/clockmail/pkg/frontier"
+	"github.com/daviddao/clockmail/pkg/model"
 )
 
 func (a *app) cmdStatus(args []string) int {

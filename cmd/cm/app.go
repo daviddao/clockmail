@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/daviddao/clockmail/internal/clock"
-	"github.com/daviddao/clockmail/internal/store"
+	"github.com/daviddao/clockmail/pkg/clock"
+	"github.com/daviddao/clockmail/pkg/model"
+	"github.com/daviddao/clockmail/pkg/store"
 )
 
 // app holds shared state for all CLI subcommands.
@@ -84,6 +85,67 @@ func (a *app) resolveEpochRound(agentID string, flagEpoch, flagRound int64) (int
 		}
 	}
 	return ep, rn
+}
+
+// peekInbox checks for pending messages without advancing the cursor.
+// Returns the messages and count. Used by commands that want to show
+// pending messages as a side effect (send, lock, etc.).
+func (a *app) peekInbox(agentID string) ([]model.Event, int) {
+	if agentID == "" {
+		return nil, 0
+	}
+	cursor := a.store.GetCursor(agentID)
+	msgs, err := a.store.ListEventsForAgent(agentID, cursor, 100)
+	if err != nil {
+		return nil, 0
+	}
+	return msgs, len(msgs)
+}
+
+// drainInbox fetches pending messages, applies Lamport IR2, advances the
+// cursor, and returns the messages. This is the "receive" side effect that
+// send, lock, and other commands use to force bidirectional communication.
+func (a *app) drainInbox(agentID string, c *clock.Clock) []model.Event {
+	if agentID == "" {
+		return nil
+	}
+	cursor := a.store.GetCursor(agentID)
+	msgs, err := a.store.ListEventsForAgent(agentID, cursor, 100)
+	if err != nil || len(msgs) == 0 {
+		return nil
+	}
+	var maxTS int64
+	for _, e := range msgs {
+		c.Receive(e.LamportTS)
+		if e.LamportTS > maxTS {
+			maxTS = e.LamportTS
+		}
+	}
+	if ag, _ := a.store.GetAgent(agentID); ag != nil {
+		_ = a.store.UpdateAgentClock(agentID, c.Value(), ag.Epoch, ag.Round)
+	}
+	if maxTS > 0 {
+		_ = a.store.SetCursor(agentID, maxTS+1)
+	}
+	return msgs
+}
+
+// printInbox prints received messages to stderr so they don't interfere
+// with the command's primary stdout output. Returns the count printed.
+func printInbox(msgs []model.Event) int {
+	if len(msgs) == 0 {
+		return 0
+	}
+	fmt.Fprintf(os.Stderr, "\n=== %d pending message(s) ===\n", len(msgs))
+	for _, e := range msgs {
+		body := e.Body
+		if len(body) > 120 {
+			body = body[:120] + "..."
+		}
+		fmt.Fprintf(os.Stderr, "  [ts=%d] %s: %s\n", e.LamportTS, e.AgentID, body)
+	}
+	fmt.Fprintf(os.Stderr, "============================\n\n")
+	return len(msgs)
 }
 
 // printJSON writes v to stdout as indented JSON.
