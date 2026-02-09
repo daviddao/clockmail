@@ -1,0 +1,5 @@
+clockmail
+/cm
+*.db
+*.db-wal
+*.db-shm
