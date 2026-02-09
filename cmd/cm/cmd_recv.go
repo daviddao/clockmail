@@ -11,6 +11,7 @@ func (a *app) cmdRecv(args []string) int {
 	agent := flags.String("agent", "", "recipient agent ID")
 	sinceTS := flags.Int64("since", -1, "fetch events with lamport_ts >= this (-1 = use cursor)")
 	limit := flags.Int("limit", 100, "max messages to return")
+	summary := flags.Bool("summary", false, "show one-line summaries only (first 80 chars)")
 	jsonOut := flags.Bool("json", false, "JSON output")
 	if err := flags.Parse(args); err != nil {
 		return 1
@@ -60,7 +61,11 @@ func (a *app) cmdRecv(args []string) int {
 			fmt.Println("no new messages")
 		} else {
 			for _, e := range events {
-				fmt.Printf("[ts=%d] %s: %s\n", e.LamportTS, e.AgentID, e.Body)
+				body := e.Body
+				if *summary && len(body) > 80 {
+					body = body[:80] + "..."
+				}
+				fmt.Printf("[ts=%d] %s: %s\n", e.LamportTS, e.AgentID, body)
 			}
 			fmt.Fprintf(os.Stderr, "(%d messages, clock now %d)\n", len(events), newTS)
 		}

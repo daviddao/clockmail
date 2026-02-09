@@ -16,8 +16,14 @@ type app struct {
 }
 
 // newApp opens the database and resolves the default agent identity.
+// Creates the .clockmail/ directory if using the default DB path.
 func newApp() (*app, error) {
-	dbPath := envOr("CLOCKMAIL_DB", "clockmail.db")
+	dbPath := envOr("CLOCKMAIL_DB", defaultDB)
+	if dbPath == defaultDB {
+		if err := os.MkdirAll(defaultDir, 0755); err != nil {
+			return nil, fmt.Errorf("cannot create %s: %w", defaultDir, err)
+		}
+	}
 	s, err := store.New(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("cannot open database %q: %w", dbPath, err)

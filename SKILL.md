@@ -110,6 +110,19 @@ cm send bob "moving to epoch 2 (tests)"
 cm sync --epoch 2
 ```
 
+## Epoch Discipline
+
+Epoch advancement is an **honor system**. Each agent self-reports its epoch via `cm heartbeat --epoch N` or `cm sync --epoch N`. There is no verification that an agent actually completed the work it claims — the frontier trusts what agents report.
+
+This means: if an agent advances its epoch without finishing its work, the frontier will incorrectly show that epoch as safe to finalize. Other agents may proceed based on false assumptions.
+
+**The frontier is a coordination mechanism, not a verification mechanism.** It answers "have all agents *claimed* to be past epoch N?" — not "have all agents *actually finished* epoch N?"
+
+To keep the system trustworthy:
+- Only advance your epoch when you've genuinely completed the phase
+- If in doubt, stay at your current epoch and send a message explaining the delay
+- Use beads (`bd close`) as the authoritative record of completed work; the frontier is a coordination signal, not a source of truth
+
 ## Reading Timestamps
 
 Every event has a logical timestamp `ts`. These are **not** wall-clock times — they're Lamport counters that encode causality.

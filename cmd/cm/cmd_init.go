@@ -40,7 +40,7 @@ func (a *app) cmdInit(args []string) int {
 		return 1
 	}
 
-	dbPath := envOr("CLOCKMAIL_DB", "clockmail.db")
+	dbPath := envOr("CLOCKMAIL_DB", defaultDB)
 
 	agents, err := a.store.ListAgents()
 	if err != nil {

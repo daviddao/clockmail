@@ -7,7 +7,7 @@ import (
 
 func (a *app) cmdOnboard(_ []string) int {
 	agentID := a.agentID
-	dbPath := envOr("CLOCKMAIL_DB", "clockmail.db")
+	dbPath := envOr("CLOCKMAIL_DB", defaultDB)
 
 	fmt.Println("cm (clockmail) — multi-agent coordination via Lamport clocks + Naiad frontiers")
 	fmt.Println()

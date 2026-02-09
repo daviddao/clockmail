@@ -66,7 +66,7 @@ Use `cm frontier --epoch N` to check, or `cm sync --epoch N` which checks automa
 | `cm register <id>` | Register a new agent |
 | `cm heartbeat [--epoch N]` | Advance clock, report working position |
 | `cm send <to> <msg>` | Send message (comma-separated recipients) |
-| `cm recv` | Receive new messages (cursor-tracked, only shows unread) |
+| `cm recv [--summary]` | Receive new messages (cursor-tracked, only shows unread; `--summary` truncates to 80 chars) |
 | `cm lock <path>` | Acquire exclusive file lock (exit 2 if denied) |
 | `cm unlock <path>` | Release file lock |
 | `cm frontier [--epoch N]` | Check if epoch N is safe to finalize |
@@ -81,7 +81,7 @@ All commands accept `--agent <id>` (overrides `CLOCKMAIL_AGENT`) and `--json` fo
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `CLOCKMAIL_DB` | `clockmail.db` | Path to shared SQLite database |
+| `CLOCKMAIL_DB` | `.clockmail/clockmail.db` | Path to shared SQLite database |
 | `CLOCKMAIL_AGENT` | *(none)* | Your agent ID (avoids `--agent` on every call) |
 
 ## Exit Codes
@@ -103,7 +103,7 @@ cm prime   -->  full dynamic context (run this at session start)
 cm status  -->  detailed runtime view
 ```
 
-See [SKILLS.md](SKILLS.md) for agent workflow patterns: when to lock, how to read timestamps, session lifecycle, and conflict resolution.
+See [SKILL.md](SKILL.md) for agent workflow patterns: when to lock, how to read timestamps, session lifecycle, and conflict resolution.
 
 ## Example Session
 
@@ -117,7 +117,7 @@ cm unlock auth.go
 cm heartbeat --epoch 2
 
 # Terminal 2: Bob
-export CLOCKMAIL_AGENT=bob CLOCKMAIL_DB=clockmail.db
+export CLOCKMAIL_AGENT=bob
 cm register bob
 cm sync --epoch 1
 # => receives alice's message, sees frontier is SAFE (alice moved to epoch 2)

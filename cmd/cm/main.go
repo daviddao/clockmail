@@ -7,7 +7,11 @@ import (
 	"os"
 )
 
-const version = "1.0.0"
+const (
+	version    = "1.0.0"
+	defaultDB  = ".clockmail/clockmail.db"
+	defaultDir = ".clockmail"
+)
 
 func main() {
 	if len(os.Args) < 2 {
@@ -88,7 +92,7 @@ Commands:
   register <agent_id>       Register an agent session
   heartbeat [--epoch N]     Advance clock, report working position
   send <to> <message>       Send a message (Lamport IR1)
-  recv [--since N]          Receive messages (Lamport IR2)
+  recv [--since N] [--summary]  Receive messages (Lamport IR2)
   lock <path> [--ttl N]     Acquire exclusive file lock (total order)
   unlock <path>             Release a file lock
   frontier [--epoch N]      Check Naiad frontier safety
@@ -101,7 +105,7 @@ Aliases:
   hb = heartbeat
 
 Environment:
-  CLOCKMAIL_DB      SQLite database path (default: clockmail.db)
+  CLOCKMAIL_DB      SQLite database path (default: .clockmail/clockmail.db)
   CLOCKMAIL_AGENT   Default agent ID (avoids passing --agent every time)
 
 All commands support --json for machine-readable output.
