@@ -440,34 +440,34 @@ func TestGetActivePointstamps(t *testing.T) {
 
 func TestIsTransientSQLiteError_BusyError(t *testing.T) {
 	err := fmt.Errorf("SQLITE_BUSY: database is locked")
-	if !isTransientSQLiteError(err) {
+	if !isTransientSQLiteErr(err) {
 		t.Fatal("SQLITE_BUSY should be transient")
 	}
 }
 
 func TestIsTransientSQLiteError_LockedError(t *testing.T) {
 	err := fmt.Errorf("SQLITE_LOCKED: database table is locked")
-	if !isTransientSQLiteError(err) {
+	if !isTransientSQLiteErr(err) {
 		t.Fatal("SQLITE_LOCKED should be transient")
 	}
 }
 
 func TestIsTransientSQLiteError_IOError(t *testing.T) {
 	err := fmt.Errorf("SQLITE_IOERR (522)")
-	if !isTransientSQLiteError(err) {
+	if !isTransientSQLiteErr(err) {
 		t.Fatal("SQLITE_IOERR should be transient")
 	}
 }
 
 func TestIsTransientSQLiteError_NilError(t *testing.T) {
-	if isTransientSQLiteError(nil) {
+	if isTransientSQLiteErr(nil) {
 		t.Fatal("nil error should not be transient")
 	}
 }
 
 func TestIsTransientSQLiteError_NonTransient(t *testing.T) {
 	err := fmt.Errorf("UNIQUE constraint failed")
-	if isTransientSQLiteError(err) {
+	if isTransientSQLiteErr(err) {
 		t.Fatal("UNIQUE constraint error should not be transient")
 	}
 }

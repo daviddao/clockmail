@@ -8,8 +8,6 @@ package store
 import (
 	"database/sql"
 	"fmt"
-	"math/rand"
-	"strings"
 	"time"
 
 	"github.com/daviddao/clockmail/pkg/clock"
@@ -45,50 +43,11 @@ func New(path string) (*Store, error) {
 // Close closes the database connection.
 func (s *Store) Close() error { return s.db.Close() }
 
-// retryOnContention retries a function up to maxRetries times when it returns
-// a transient SQLite error (BUSY, LOCKED, IOERR_SHORT_READ). Uses exponential
-// backoff with jitter to reduce thundering-herd effects under high concurrency.
-//
-// This addresses the WAL contention issue reported when 4+ agents are active
-// simultaneously (SQLITE_IOERR_SHORT_READ / error 522).
+// retryOnContention wraps retryOp from retry.go with the default config.
+// All store write operations should use this to handle transient SQLite
+// errors (BUSY, LOCKED, IOERR_SHORT_READ) under concurrent access.
 func retryOnContention(fn func() error) error {
-	const maxRetries = 3
-	baseDelay := 50 * time.Millisecond
-
-	var err error
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		err = fn()
-		if err == nil {
-			return nil
-		}
-		if !isTransientSQLiteError(err) {
-			return err
-		}
-		if attempt < maxRetries {
-			delay := baseDelay * time.Duration(1<<uint(attempt))
-			jitter := time.Duration(rand.Int63n(int64(delay / 2)))
-			time.Sleep(delay + jitter)
-		}
-	}
-	return fmt.Errorf("after %d retries: %w", maxRetries, err)
-}
-
-// isTransientSQLiteError returns true for SQLite errors that may resolve
-// on retry: BUSY, LOCKED, IOERR (including SHORT_READ variant).
-func isTransientSQLiteError(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "SQLITE_BUSY") ||
-		strings.Contains(msg, "SQLITE_LOCKED") ||
-		strings.Contains(msg, "SQLITE_IOERR") ||
-		strings.Contains(msg, "database is locked") ||
-		strings.Contains(msg, "database table is locked") ||
-		strings.Contains(msg, "(5)") || // SQLITE_BUSY error code
-		strings.Contains(msg, "(6)") || // SQLITE_LOCKED error code
-		strings.Contains(msg, "(266)") || // SQLITE_IOERR_READ
-		strings.Contains(msg, "(522)") // SQLITE_IOERR_SHORT_READ
+	return retryOp(defaultRetryConfig, fn)
 }
 
 func (s *Store) migrate() error {
