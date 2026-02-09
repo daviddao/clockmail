@@ -67,6 +67,10 @@ func main() {
 		os.Exit(a.cmdUnlock(os.Args[2:]))
 	case "gate":
 		os.Exit(a.cmdGate(os.Args[2:]))
+	case "review-request", "rr":
+		os.Exit(a.cmdReviewRequest(os.Args[2:]))
+	case "review-done", "rd":
+		os.Exit(a.cmdReviewDone(os.Args[2:]))
 	case "frontier":
 		os.Exit(a.cmdFrontier(os.Args[2:]))
 	case "log":
@@ -108,6 +112,8 @@ Commands:
   lock <path> [--ttl N]     Acquire exclusive file lock (total order)
   unlock <path>             Release a file lock
   gate --epoch N [--check]  Block until frontier passes epoch (test gating)
+  review-request <commit>   Signal commit ready for review (Lamport causal ordering)
+  review-done <commit> <v>  Signal review complete with pass/fail verdict
   frontier [--epoch N]      Check Naiad frontier safety
   log [--since N]           Query the append-only event log
   sync [--epoch N]          Combined: heartbeat + recv + frontier
@@ -124,6 +130,8 @@ Aliases:
   ex        = send (formerly exchange)
   exchange  = send (unified, bidirectional by default)
   broadcast = send all
+  rr        = review-request
+  rd        = review-done
 
 Environment:
   CLOCKMAIL_DB      SQLite database path (default: .clockmail/clockmail.db)

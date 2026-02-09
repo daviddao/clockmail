@@ -734,6 +734,360 @@ func TestGateWait_Timeout(t *testing.T) {
 	}
 }
 
+// --- review-request command tests ---
+
+func TestReviewRequest_BasicSend(t *testing.T) {
+	a := newTestApp(t)
+	a.store.RegisterAgent("sergie")
+	a.store.RegisterAgent("tester")
+	a.agentID = "sergie"
+
+	out := captureStdout(t, func() {
+		code := a.cmdReviewRequest([]string{"abc123", "main.go", "app.go"})
+		if code != 0 {
+			t.Fatalf("review-request: expected exit 0, got %d", code)
+		}
+	})
+	if !strings.Contains(out, "review-request sent to tester") {
+		t.Fatalf("output should mention tester, got %q", out)
+	}
+	if !strings.Contains(out, "commit=abc123") {
+		t.Fatalf("output should contain commit SHA, got %q", out)
+	}
+	if !strings.Contains(out, "main.go") {
+		t.Fatalf("output should list files, got %q", out)
+	}
+
+	// Verify event was created with correct kind.
+	events, _ := a.store.ListEvents(0, 100)
+	var found bool
+	for _, e := range events {
+		if e.Kind == model.EventReviewReq && e.Target == "tester" {
+			found = true
+			if !strings.Contains(e.Body, "abc123") {
+				t.Fatalf("event body should contain commit SHA, got %q", e.Body)
+			}
+			if !strings.Contains(e.Body, "main.go") {
+				t.Fatalf("event body should contain files, got %q", e.Body)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no review_req event found for tester")
+	}
+}
+
+func TestReviewRequest_NoArgs(t *testing.T) {
+	a := newTestApp(t)
+	a.agentID = "sergie"
+
+	code := a.cmdReviewRequest([]string{})
+	if code != 1 {
+		t.Fatalf("review-request with no args: expected exit 1, got %d", code)
+	}
+}
+
+func TestReviewRequest_NoAgent(t *testing.T) {
+	a := newTestApp(t)
+	a.agentID = "" // Clear default agent.
+
+	captureStderr(t, func() {
+		code := a.cmdReviewRequest([]string{"abc123"})
+		if code != 1 {
+			t.Fatalf("review-request with no agent: expected exit 1, got %d", code)
+		}
+	})
+}
+
+func TestReviewRequest_CustomRecipient(t *testing.T) {
+	a := newTestApp(t)
+	a.store.RegisterAgent("sergie")
+	a.store.RegisterAgent("planner")
+	a.agentID = "sergie"
+
+	out := captureStdout(t, func() {
+		code := a.cmdReviewRequest([]string{"--to", "planner", "def456"})
+		if code != 0 {
+			t.Fatalf("review-request --to planner: expected exit 0, got %d", code)
+		}
+	})
+	if !strings.Contains(out, "planner") {
+		t.Fatalf("output should mention planner, got %q", out)
+	}
+}
+
+func TestReviewRequest_Broadcast(t *testing.T) {
+	a := newTestApp(t)
+	a.store.RegisterAgent("sergie")
+	a.store.RegisterAgent("tester")
+	a.store.RegisterAgent("planner")
+	a.agentID = "sergie"
+
+	out := captureStdout(t, func() {
+		code := a.cmdReviewRequest([]string{"--to", "all", "abc123"})
+		if code != 0 {
+			t.Fatalf("review-request --to all: expected exit 0, got %d", code)
+		}
+	})
+	if !strings.Contains(out, "tester") || !strings.Contains(out, "planner") {
+		t.Fatalf("broadcast output should mention all recipients, got %q", out)
+	}
+}
+
+func TestReviewRequest_JSON(t *testing.T) {
+	a := newTestApp(t)
+	a.store.RegisterAgent("sergie")
+	a.store.RegisterAgent("tester")
+	a.agentID = "sergie"
+
+	out := captureStdout(t, func() {
+		code := a.cmdReviewRequest([]string{"--json", "abc123", "file1.go"})
+		if code != 0 {
+			t.Fatalf("review-request --json: expected exit 0, got %d", code)
+		}
+	})
+	if !strings.Contains(out, `"commit"`) {
+		t.Fatalf("JSON output should contain commit field, got %q", out)
+	}
+	if !strings.Contains(out, `"review-request"`) {
+		t.Fatalf("JSON output should contain type field, got %q", out)
+	}
+	if !strings.Contains(out, `"lamport_ts"`) {
+		t.Fatalf("JSON output should contain lamport_ts field, got %q", out)
+	}
+}
+
+func TestReviewRequest_NoFiles(t *testing.T) {
+	a := newTestApp(t)
+	a.store.RegisterAgent("sergie")
+	a.store.RegisterAgent("tester")
+	a.agentID = "sergie"
+
+	out := captureStdout(t, func() {
+		code := a.cmdReviewRequest([]string{"abc123"})
+		if code != 0 {
+			t.Fatalf("review-request with no files: expected exit 0, got %d", code)
+		}
+	})
+	if !strings.Contains(out, "commit=abc123") {
+		t.Fatalf("output should contain commit, got %q", out)
+	}
+	// No "files=" should appear when no files specified.
+	if strings.Contains(out, "files=") {
+		t.Fatalf("output should not contain files= when none given, got %q", out)
+	}
+}
+
+// --- review-done command tests ---
+
+func TestReviewDone_Pass(t *testing.T) {
+	a := newTestApp(t)
+	a.store.RegisterAgent("tester")
+	a.store.RegisterAgent("sergie")
+	a.agentID = "tester"
+
+	out := captureStdout(t, func() {
+		code := a.cmdReviewDone([]string{"--to", "sergie", "abc123", "pass"})
+		if code != 0 {
+			t.Fatalf("review-done pass: expected exit 0, got %d", code)
+		}
+	})
+	if !strings.Contains(out, "verdict=pass") {
+		t.Fatalf("output should contain verdict=pass, got %q", out)
+	}
+	if !strings.Contains(out, "commit=abc123") {
+		t.Fatalf("output should contain commit, got %q", out)
+	}
+
+	// Verify event kind.
+	events, _ := a.store.ListEvents(0, 100)
+	var found bool
+	for _, e := range events {
+		if e.Kind == model.EventReviewDone && e.Target == "sergie" {
+			found = true
+			if !strings.Contains(e.Body, `"pass"`) {
+				t.Fatalf("event body should contain verdict, got %q", e.Body)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no review_done event found for sergie")
+	}
+}
+
+func TestReviewDone_FailWithComment(t *testing.T) {
+	a := newTestApp(t)
+	a.store.RegisterAgent("tester")
+	a.store.RegisterAgent("sergie")
+	a.agentID = "tester"
+
+	out := captureStdout(t, func() {
+		code := a.cmdReviewDone([]string{"--to", "sergie", "abc123", "fail", "needs", "error", "handling"})
+		if code != 0 {
+			t.Fatalf("review-done fail with comment: expected exit 0, got %d", code)
+		}
+	})
+	if !strings.Contains(out, "verdict=fail") {
+		t.Fatalf("output should contain verdict=fail, got %q", out)
+	}
+	if !strings.Contains(out, `comment="needs error handling"`) {
+		t.Fatalf("output should contain comment, got %q", out)
+	}
+}
+
+func TestReviewDone_InvalidVerdict(t *testing.T) {
+	a := newTestApp(t)
+	a.store.RegisterAgent("tester")
+	a.agentID = "tester"
+
+	captureStderr(t, func() {
+		code := a.cmdReviewDone([]string{"abc123", "maybe"})
+		if code != 1 {
+			t.Fatalf("review-done with invalid verdict: expected exit 1, got %d", code)
+		}
+	})
+}
+
+func TestReviewDone_NoArgs(t *testing.T) {
+	a := newTestApp(t)
+	a.agentID = "tester"
+
+	code := a.cmdReviewDone([]string{})
+	if code != 1 {
+		t.Fatalf("review-done with no args: expected exit 1, got %d", code)
+	}
+}
+
+func TestReviewDone_OnlyCommit(t *testing.T) {
+	a := newTestApp(t)
+	a.agentID = "tester"
+
+	code := a.cmdReviewDone([]string{"abc123"})
+	if code != 1 {
+		t.Fatalf("review-done with only commit: expected exit 1, got %d", code)
+	}
+}
+
+func TestReviewDone_JSON(t *testing.T) {
+	a := newTestApp(t)
+	a.store.RegisterAgent("tester")
+	a.store.RegisterAgent("sergie")
+	a.agentID = "tester"
+
+	out := captureStdout(t, func() {
+		code := a.cmdReviewDone([]string{"--json", "--to", "sergie", "abc123", "pass", "looks good"})
+		if code != 0 {
+			t.Fatalf("review-done --json: expected exit 0, got %d", code)
+		}
+	})
+	if !strings.Contains(out, `"verdict"`) {
+		t.Fatalf("JSON output should contain verdict field, got %q", out)
+	}
+	if !strings.Contains(out, `"review-done"`) {
+		t.Fatalf("JSON output should contain type field, got %q", out)
+	}
+	if !strings.Contains(out, `"comment"`) {
+		t.Fatalf("JSON output should contain comment field, got %q", out)
+	}
+}
+
+func TestReviewDone_DefaultBroadcast(t *testing.T) {
+	a := newTestApp(t)
+	a.store.RegisterAgent("tester")
+	a.store.RegisterAgent("sergie")
+	a.store.RegisterAgent("planner")
+	a.agentID = "tester"
+
+	out := captureStdout(t, func() {
+		code := a.cmdReviewDone([]string{"abc123", "pass"})
+		if code != 0 {
+			t.Fatalf("review-done default broadcast: expected exit 0, got %d", code)
+		}
+	})
+	// Default --to is "all", should reach both sergie and planner.
+	if !strings.Contains(out, "sergie") || !strings.Contains(out, "planner") {
+		t.Fatalf("default broadcast should reach all other agents, got %q", out)
+	}
+}
+
+// --- Lamport causal ordering test ---
+// This is the key property from the issue: review-done timestamp > review-request timestamp.
+
+func TestReview_CausalOrdering(t *testing.T) {
+	a := newTestApp(t)
+	a.store.RegisterAgent("sergie")
+	a.store.RegisterAgent("tester")
+
+	// Step 1: sergie sends review-request.
+	a.agentID = "sergie"
+	captureStdout(t, func() {
+		code := a.cmdReviewRequest([]string{"abc123", "main.go"})
+		if code != 0 {
+			t.Fatalf("review-request: expected exit 0, got %d", code)
+		}
+	})
+
+	// Find the review-request event's Lamport timestamp.
+	events, _ := a.store.ListEvents(0, 100)
+	var reqTS int64
+	for _, e := range events {
+		if e.Kind == model.EventReviewReq {
+			reqTS = e.LamportTS
+			break
+		}
+	}
+	if reqTS == 0 {
+		t.Fatal("review-request event not found")
+	}
+
+	// Step 2: tester receives the message (via drainInbox in cmdReviewDone),
+	// then sends review-done. The Lamport clock rules guarantee the
+	// review-done timestamp > review-request timestamp.
+	a.agentID = "tester"
+	captureStdout(t, func() {
+		code := a.cmdReviewDone([]string{"--to", "sergie", "abc123", "pass"})
+		if code != 0 {
+			t.Fatalf("review-done: expected exit 0, got %d", code)
+		}
+	})
+
+	// Find the review-done event's Lamport timestamp.
+	events, _ = a.store.ListEvents(0, 100)
+	var doneTS int64
+	for _, e := range events {
+		if e.Kind == model.EventReviewDone {
+			doneTS = e.LamportTS
+			break
+		}
+	}
+	if doneTS == 0 {
+		t.Fatal("review-done event not found")
+	}
+
+	// The key Lamport property: review-done happened-after review-request.
+	if doneTS <= reqTS {
+		t.Fatalf("Lamport causal ordering violated: review-done ts=%d should be > review-request ts=%d",
+			doneTS, reqTS)
+	}
+}
+
+func TestReviewDone_VerdictCaseInsensitive(t *testing.T) {
+	a := newTestApp(t)
+	a.store.RegisterAgent("tester")
+	a.store.RegisterAgent("sergie")
+	a.agentID = "tester"
+
+	out := captureStdout(t, func() {
+		code := a.cmdReviewDone([]string{"--to", "sergie", "abc123", "PASS"})
+		if code != 0 {
+			t.Fatalf("review-done PASS (uppercase): expected exit 0, got %d", code)
+		}
+	})
+	if !strings.Contains(out, "verdict=pass") {
+		t.Fatalf("verdict should be normalized to lowercase, got %q", out)
+	}
+}
+
 // --- Helpers ---
 
 func captureStdout(t *testing.T, fn func()) string {

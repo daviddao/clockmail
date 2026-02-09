@@ -299,6 +299,8 @@ func (s *Store) CountEvents() int64 {
 }
 
 // ListEventsForAgent returns messages targeted to agentID since sinceTS.
+// Includes regular messages and review events (review_req, review_done),
+// all of which are delivered to the target agent's inbox.
 func (s *Store) ListEventsForAgent(agentID string, sinceTS int64, limit int) ([]model.Event, error) {
 	if limit <= 0 {
 		limit = 100
@@ -306,7 +308,7 @@ func (s *Store) ListEventsForAgent(agentID string, sinceTS int64, limit int) ([]
 	rows, err := s.db.Query(
 		`SELECT id, agent_id, lamport_ts, epoch, round, kind,
 		        COALESCE(target,''), COALESCE(body,''), created_at
-		 FROM events WHERE target = ? AND kind = 'msg' AND lamport_ts >= ?
+		 FROM events WHERE target = ? AND kind IN ('msg', 'review_req', 'review_done') AND lamport_ts >= ?
 		 ORDER BY lamport_ts ASC, id ASC LIMIT ?`,
 		agentID, sinceTS, limit,
 	)

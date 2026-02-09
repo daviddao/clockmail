@@ -45,10 +45,12 @@ type Pointstamp struct {
 type EventKind string
 
 const (
-	EventMsg      EventKind = "msg"
-	EventLockReq  EventKind = "lock_req"
-	EventLockRel  EventKind = "lock_rel"
-	EventProgress EventKind = "progress"
+	EventMsg        EventKind = "msg"
+	EventLockReq    EventKind = "lock_req"
+	EventLockRel    EventKind = "lock_rel"
+	EventProgress   EventKind = "progress"
+	EventReviewReq  EventKind = "review_req"
+	EventReviewDone EventKind = "review_done"
 )
 
 // Agent represents a registered agent session.
