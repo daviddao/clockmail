@@ -145,8 +145,15 @@ func (s *Store) ListAgents() ([]model.Agent, error) {
 		if err := rows.Scan(&a.ID, &a.Clock, &a.Epoch, &a.Round, &regStr, &lsStr); err != nil {
 			return nil, err
 		}
-		a.Registered, _ = time.Parse(time.RFC3339Nano, regStr)
-		a.LastSeen, _ = time.Parse(time.RFC3339Nano, lsStr)
+		var parseErr error
+		a.Registered, parseErr = time.Parse(time.RFC3339Nano, regStr)
+		if parseErr != nil {
+			return nil, fmt.Errorf("parse registered time for agent %s: %w", a.ID, parseErr)
+		}
+		a.LastSeen, parseErr = time.Parse(time.RFC3339Nano, lsStr)
+		if parseErr != nil {
+			return nil, fmt.Errorf("parse last_seen time for agent %s: %w", a.ID, parseErr)
+		}
 		agents = append(agents, a)
 	}
 	return agents, rows.Err()
@@ -158,8 +165,15 @@ func scanAgent(row *sql.Row) (*model.Agent, error) {
 	if err := row.Scan(&a.ID, &a.Clock, &a.Epoch, &a.Round, &regStr, &lsStr); err != nil {
 		return nil, err
 	}
-	a.Registered, _ = time.Parse(time.RFC3339Nano, regStr)
-	a.LastSeen, _ = time.Parse(time.RFC3339Nano, lsStr)
+	var parseErr error
+	a.Registered, parseErr = time.Parse(time.RFC3339Nano, regStr)
+	if parseErr != nil {
+		return nil, fmt.Errorf("parse registered time for agent %s: %w", a.ID, parseErr)
+	}
+	a.LastSeen, parseErr = time.Parse(time.RFC3339Nano, lsStr)
+	if parseErr != nil {
+		return nil, fmt.Errorf("parse last_seen time for agent %s: %w", a.ID, parseErr)
+	}
 	return &a, nil
 }
 
@@ -284,7 +298,11 @@ func scanEvents(rows *sql.Rows) ([]model.Event, error) {
 			return nil, err
 		}
 		e.Kind = model.EventKind(kindStr)
-		e.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdStr)
+		var parseErr error
+		e.CreatedAt, parseErr = time.Parse(time.RFC3339Nano, createdStr)
+		if parseErr != nil {
+			return nil, fmt.Errorf("parse created_at time for event %d: %w", e.ID, parseErr)
+		}
 		events = append(events, e)
 	}
 	return events, rows.Err()
