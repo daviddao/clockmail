@@ -7,8 +7,14 @@ import (
 	"os"
 )
 
+// Set via -ldflags at build time.
+var (
+	version = "dev"
+	commit  = "unknown"
+	date    = "unknown"
+)
+
 const (
-	version    = "1.0.0"
 	defaultDB  = ".clockmail/clockmail.db"
 	defaultDir = ".clockmail"
 )
@@ -24,7 +30,7 @@ func main() {
 		printUsage()
 		return
 	case "--version", "-v", "version":
-		fmt.Println("cm", version)
+		fmt.Printf("cm %s (commit %s, built %s)\n", version, commit, date)
 		return
 	}
 

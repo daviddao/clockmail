@@ -4,14 +4,23 @@ Coordinate multiple AI agent sessions working on the same codebase. Agents commu
 
 ## Install
 
+One-liner (requires `go` and `git`):
+
 ```bash
-go install github.com/daviddao/clockmail/cmd/cm@latest
+curl -sSL https://raw.githubusercontent.com/daviddao/clockmail/main/install.sh | sh
 ```
 
-Or build from source:
+Custom install directory:
 
 ```bash
-git clone https://github.com/daviddao/clockmail.git && cd clockmail && go build -o cm ./cmd/cm
+curl -sSL https://raw.githubusercontent.com/daviddao/clockmail/main/install.sh | INSTALL_DIR=/usr/local/bin sh
+```
+
+Or build from source manually:
+
+```bash
+git clone https://github.com/daviddao/clockmail.git && cd clockmail
+go build -ldflags "-X main.version=$(git describe --tags 2>/dev/null || git rev-parse --short HEAD) -X main.commit=$(git rev-parse --short HEAD) -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o cm ./cmd/cm
 ```
 
 ## Quick Start
